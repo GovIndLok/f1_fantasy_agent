@@ -18,4 +18,8 @@ This solution is a backend decision-support system built with Python, FastAPI, D
 5. **Agent with guardrails (Swap):** Replaces background jobs/caching. The AI acts strictly inside F1 analysis limits, utilizing LangChain tools to enforce deterministic logic and reject generic chat.
 
 **Steps to run:**
-*(To be finalized in M4)*
+1. Clone the repository and run `uv sync` to install dependencies.
+2. Ensure you have `.env` containing your `GEMINI_API_KEY` and `SUPABASE_URL` / `SUPABASE_KEY`.
+3. Seed the local DuckDB database: `uv run python scripts/seed_db.py`.
+4. Start the FastAPI server: `uv run uvicorn app.main:app --reload`.
+5. Follow the demo path in the README (register, login, check roster, chat with agent).

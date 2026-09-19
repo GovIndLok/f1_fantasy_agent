@@ -1,9 +1,11 @@
+import os
 from typing import Annotated
 
 import duckdb
 import pydantic
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI
 
+from agents.f1_agent import run_f1_agent
 from app.auth import get_current_player_id
 from app.auth import router as auth_router
 
@@ -12,7 +14,8 @@ app.include_router(auth_router)
 
 
 def get_db():
-    con = duckdb.connect('../data/f1_fantasy.db')
+    db_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'f1_fantasy.db')
+    con = duckdb.connect(db_path)
     try:
         yield con
     finally:
@@ -36,11 +39,14 @@ class RosterResponse(pydantic.BaseModel):
     roster: list[RosterEntity]
 
 
-@app.get("/roster/me", response_model=RosterResponse)
+@app.get("/roster/me", response_model=RosterResponse, description="User current player roster")
 def get_my_roster(player_id: PlayerIdDep, db: DbDep):
     player_res = db.execute("SELECT budget FROM players WHERE player_id = ?", [player_id]).fetchone()
     if not player_res:
-        raise HTTPException(status_code=404, detail="Player not found")
+        # Auto-create player for demo simplicity if they came from Supabase
+        db.execute("INSERT INTO players VALUES (?, 'new_manager', 100.00)", [player_id])
+        player_res = (100.00,)
+        
     budget = player_res[0]
 
     query = """
@@ -66,3 +72,16 @@ def get_my_roster(player_id: PlayerIdDep, db: DbDep):
             for row in roster_res
         ],
     )
+
+class ChatRequest(pydantic.BaseModel):
+
+    prompt: str
+
+class ChatResponse(pydantic.BaseModel):
+    answer: str
+    cost_log: dict
+
+@app.post("/chat", response_model=ChatResponse, description="Chat with the F1 Fantasy Agent")
+def chat_with_agent(req: ChatRequest, player_id: PlayerIdDep, db: DbDep):
+    result = run_f1_agent(req.prompt, player_id, db)
+    return ChatResponse(answer=result["answer"], cost_log=result["cost_log"])
