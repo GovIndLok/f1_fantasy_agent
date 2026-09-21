@@ -6,11 +6,11 @@ An objective, conversational AI analyst for F1 Fantasy players. It helps manager
 ## The 5 Concepts
 | Concept | Where it lives in the code |
 |---------|----------------------------|
-| **1. API Endpoints** | `app/main.py` and `app/auth.py` - FastAPI backend routes |
-| **2. Database** | `app/main.py` and `scripts/seed_db.py` - DuckDB persistence |
-| **3. Authentication** | `app/auth.py` - Supabase-backed user accounts and JWT protection |
-| **4. LLM Integration** | `agents/f1_agent.py` - LangChain agent with Gemini |
-| **5. Agent with guardrails (Swap)** | `agents/f1_agent.py` - Strict system prompt limiting the agent to F1 topics, rejecting generic queries |
+| **1. API Endpoints** | `app/main.py`, `app/auth/router.py`, `app/rosters/router.py` |
+| **2. Database** | `app/database.py` (connection) · `scripts/seed_db.py` (seeding) |
+| **3. Authentication** | `app/auth/utils.py` (Supabase client + JWT) · `app/auth/router.py` (endpoints) |
+| **4. LLM Integration** | `agents/f1_analyst/agent.py` (LangChain + Gemini assembly) |
+| **5. Agent with guardrails (Swap)** | `agents/f1_analyst/agent.py` (system prompt) · `agents/f1_analyst/tools.py` (DB-bound tools) |
 
 ## Setup & Run Instructions
 

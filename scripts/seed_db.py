@@ -1,5 +1,4 @@
 import os
-import random
 import time
 
 import duckdb
@@ -50,7 +49,6 @@ def seed_database():
             "name": f"{item.get('givenName')} {item.get('familyName')}",
             "code": item.get("code", ""),
             "nationality": item.get("nationality", ""),
-            "current_price": round(random.uniform(5.0, 30.0), 1),
         }
         for item in fetch_json(f"{season}/drivers")
     ]
@@ -61,7 +59,6 @@ def seed_database():
             "constructor_id": item.get("constructorId"),
             "name": item.get("name"),
             "nationality": item.get("nationality", ""),
-            "current_price": round(random.uniform(10.0, 35.0), 1),
         }
         for item in fetch_json(f"{season}/constructors")
     ]
@@ -70,15 +67,13 @@ def seed_database():
     db_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'f1_fantasy.db')
     con = duckdb.connect(db_path)
 
-    # DuckDB reads Python lists of dicts directly — no pandas needed
     con.execute("CREATE OR REPLACE TABLE drivers AS SELECT * FROM drivers")
     con.execute("CREATE OR REPLACE TABLE constructors AS SELECT * FROM constructors")
 
     con.execute("""
         CREATE OR REPLACE TABLE players (
             player_id VARCHAR PRIMARY KEY,
-            username VARCHAR,
-            budget DECIMAL(5, 2)
+            username VARCHAR
         )
     """)
     con.execute("""
@@ -89,7 +84,7 @@ def seed_database():
         )
     """)
 
-    con.execute("INSERT INTO players VALUES ('user_1', 'f1_fanatic', 100.00)")
+    con.execute("INSERT INTO players VALUES ('user_1', 'f1_fanatic')")
     con.executemany(
         "INSERT INTO rosters VALUES (?, ?, ?)",
         [("user_1", d["driver_id"], "driver") for d in drivers[:5]]
@@ -99,5 +94,6 @@ def seed_database():
     print("Database seeded successfully.")
     con.close()
 
-if __name__ == "__main__":
+if __name__ == "__main__":    
     seed_database()
+

@@ -1,13 +1,16 @@
+"""
+Auth utilities — Supabase client factory and token verification.
+
+Swap the auth backend here without touching routing or schemas.
+"""
 import os
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
 from supabase import Client, create_client
 
-router = APIRouter(prefix="/auth", tags=["auth"])
-security = HTTPBearer()
+_security = HTTPBearer()
 
 
 def get_supabase() -> Client:
@@ -19,32 +22,7 @@ def get_supabase() -> Client:
 
 
 SupabaseDep = Annotated[Client, Depends(get_supabase)]
-CredentialsDep = Annotated[HTTPAuthorizationCredentials, Depends(security)]
-
-
-class UserCredentials(BaseModel):
-    email: str
-    password: str
-
-
-@router.post("/register")
-def register_user(creds: UserCredentials, supabase: SupabaseDep):
-    try:
-        res = supabase.auth.sign_up({"email": creds.email, "password": creds.password})
-        return {"message": "User registered successfully", "user": res.user}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
-
-@router.post("/login")
-def login_user(creds: UserCredentials, supabase: SupabaseDep):
-    try:
-        res = supabase.auth.sign_in_with_password(
-            {"email": creds.email, "password": creds.password}
-        )
-        return {"access_token": res.session.access_token, "token_type": "bearer"}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+CredentialsDep = Annotated[HTTPAuthorizationCredentials, Depends(_security)]
 
 
 def get_current_player_id(credentials: CredentialsDep, supabase: SupabaseDep) -> str:
@@ -63,3 +41,4 @@ def get_current_player_id(credentials: CredentialsDep, supabase: SupabaseDep) ->
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Token verification failed: {e}",
         ) from e
+

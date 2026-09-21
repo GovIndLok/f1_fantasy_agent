@@ -14,3 +14,9 @@ wheels/
 # Databases
 *.db
 *.db.wal
+
+# Data 
+data/
+
+# Work docs for agents
+docs/*
