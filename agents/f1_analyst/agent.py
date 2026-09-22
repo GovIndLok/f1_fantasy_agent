@@ -27,12 +27,12 @@ _SYSTEM_PROMPT = (
 )
 
 
+_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+
 def run_f1_agent(prompt: str, player_id: str, db: duckdb.DuckDBPyConnection) -> dict:
     """Run the F1 analyst agent and return {"answer": str, "cost_log": dict}."""
-    # Swap the LLM here — everything else stays the same
-    llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash", temperature=0)
     tools = build_tools(player_id, db)
-    agent = create_agent(llm, tools, system_prompt=_SYSTEM_PROMPT)
+    agent = create_agent(_llm, tools, system_prompt=_SYSTEM_PROMPT)
 
     try:
         response = agent.invoke({"messages": [("user", prompt)]})

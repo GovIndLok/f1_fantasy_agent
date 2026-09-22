@@ -38,5 +38,13 @@ def build_tools(player_id: str, db: duckdb.DuckDBPyConnection) -> list:
         lines += ["Constructors:"] + [f"- {r[0]}" for r in c_res]
         return "\n".join(lines)
 
-    return [get_my_team]
+    @tool
+    def query_f1_database(question: str) -> str:
+        """Use this tool to answer ANY analytical or historical question about F1. 
+        It writes and executes SQL against our F1 statistics database containing races, circuits, drivers, constructors, and results.
+        Example questions: 'How did Max do in Bahrain?', 'Which constructor has the most points in 2024?', 'Who started on pole at Monza?'"""
+        from agents.f1_analyst.sql_agent import run_sql_query
+        return run_sql_query(question)
+
+    return [get_my_team, query_f1_database]
 

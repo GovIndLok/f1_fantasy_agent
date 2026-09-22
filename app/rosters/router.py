@@ -22,14 +22,14 @@ def get_my_roster(player_id: PlayerIdDep, db: DbDep):
     query = """
         SELECT r.entity_id, d.name, r.entity_type
         FROM rosters r
-        JOIN drivers d ON r.entity_id = d.driver_id
+        JOIN stats.drivers d ON r.entity_id = d.driver_id
         WHERE r.player_id = ? AND r.entity_type = 'driver'
 
         UNION ALL
 
         SELECT r.entity_id, c.name, r.entity_type
         FROM rosters r
-        JOIN constructors c ON r.entity_id = c.constructor_id
+        JOIN stats.constructors c ON r.entity_id = c.constructor_id
         WHERE r.player_id = ? AND r.entity_type = 'constructor'
     """
     roster_res = db.execute(query, [player_id, player_id]).fetchall()

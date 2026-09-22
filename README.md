@@ -20,6 +20,12 @@ This project uses `uv` for dependency management.
 uv sync
 ```
 
+### Testing
+We use `pytest` for running automated tests. To execute tests for the SQL Agent and other components:
+```bash
+uv run pytest
+```
+
 **2. Environment Variables**
 Create a `.env` file in the project root with the following:
 ```env
