@@ -47,6 +47,11 @@ uv run uvicorn app.main:app --reload
 
 ## 5-Minute Demo Path
 
+0. **Check API Status**
+```bash
+curl -X GET http://127.0.0.1:8000/status
+```
+
 1. **Register a test user**
 ```bash
 curl -X POST http://127.0.0.1:8000/auth/register \

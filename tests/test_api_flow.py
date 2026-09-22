@@ -32,6 +32,21 @@ client = TestClient(app)
 # This simulates a real user's session flow
 state = {}
 
+def test_0_api_status():
+    """Test the API status endpoints."""
+    # Test /status
+    res = client.get("/status")
+    assert res.status_code == 200, f"Status check failed: {res.text}"
+    data = res.json()
+    assert data["status"] == "operational"
+    assert data["database"] == "connected"
+    assert "api_version" in data
+
+    # Test root /
+    res_root = client.get("/")
+    assert res_root.status_code == 200
+    assert res_root.json()["status"] == "operational"
+
 def test_1_register_user():
     """Test creating a new test user via the API."""
     state["email"] = f"test_{uuid.uuid4().hex[:8]}@example.com"
