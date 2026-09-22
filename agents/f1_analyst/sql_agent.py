@@ -1,8 +1,9 @@
 import os
 
 import duckdb
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
+
+from agents.f1_analyst.utils import get_llm
 
 _STATS_DB_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'f1_stats.db')
 
@@ -39,7 +40,7 @@ def run_sql_query(question: str) -> str:
         schema_context = _get_schema_context(con)
         
         # 2. SQL Agent (Generator)
-        generator_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+        generator_llm = get_llm()
         gen_prompt = (
             f"You are a DuckDB SQL expert. Write a query to answer the following question.\n\n"
             f"Schema and Samples:\n{schema_context}\n\n"
@@ -51,7 +52,7 @@ def run_sql_query(question: str) -> str:
         sql = sql_raw.replace('```sql', '').replace('```', '').strip()
         
         # 3. Verifier Agent
-        verifier_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0).with_structured_output(VerificationResult)
+        verifier_llm = get_llm().with_structured_output(VerificationResult)
         verify_prompt = (
             f"Review this DuckDB SQL query: {sql}\n\n"
             f"Is it a safe, read-only SELECT query? Reject anything that modifies data, drops tables, or alters settings."

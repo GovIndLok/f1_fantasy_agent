@@ -11,14 +11,14 @@ No DB query logic lives here.
 """
 import duckdb
 from langchain.agents import create_agent
-from langchain_google_genai import ChatGoogleGenerativeAI
 
 from agents.f1_analyst.tools import build_tools
+from agents.f1_analyst.utils import get_llm
 
 _SYSTEM_PROMPT = (
     "You are a strict F1 Fantasy Analyst. "
-    "You ONLY discuss Formula 1 and Fantasy transfers. "
-    "If a user asks about anything else, politely refuse to answer. "
+    "You discuss Formula 1 racing, race statistics, and Fantasy transfers. "
+    "If a user asks about non-Formula 1 topics, politely refuse to answer. "
     "You do not have access to live news, real-time upgrade packages, or live fantasy price changes. "
     "You must rely purely on historical performance data and whatever context the user provides in their prompt "
     "to make your predictions and roster suggestions. "
@@ -27,7 +27,8 @@ _SYSTEM_PROMPT = (
 )
 
 
-_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+_llm = get_llm()
+
 
 def run_f1_agent(prompt: str, player_id: str, db: duckdb.DuckDBPyConnection) -> dict:
     """Run the F1 analyst agent and return {"answer": str, "cost_log": dict}."""
@@ -36,8 +37,7 @@ def run_f1_agent(prompt: str, player_id: str, db: duckdb.DuckDBPyConnection) -> 
 
     try:
         response = agent.invoke({"messages": [("user", prompt)]})
-        content = response["messages"][-1].content
-        answer = content if isinstance(content, str) else str(content)
+        answer = response["messages"][-1].content or ""
         return {
             "answer": answer,
             "cost_log": {"total_tokens": len(prompt.split()) + len(answer.split())},
