@@ -1,13 +1,23 @@
 from typing import Annotated
 
 from fastapi import Depends, FastAPI
+from pydantic import BaseModel
 
-from agents.f1_analyst import run_f1_agent
-from agents.f1_analyst.schema import ChatRequest, ChatResponse
-from app.auth import get_current_player_id
-from app.auth import router as auth_router
+from agents.f1_analyst.agent import run_f1_agent
+from app.auth.router import router as auth_router
+from app.auth.utils import get_current_player_id
 from app.database import DbDep
-from app.rosters import router as roster_router
+from app.rosters.router import router as roster_router
+
+
+class ChatRequest(BaseModel):
+    prompt: str
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    cost_log: dict
+
 
 app = FastAPI(title="F1 Fantasy Agent API")
 app.include_router(auth_router)
@@ -22,8 +32,8 @@ def get_status(db: DbDep):
     db_status = "connected"
     try:
         db.execute("SELECT 1").fetchone()
-    except Exception as e:
-        db_status = f"unavailable: {e}"
+    except Exception as exc:
+        db_status = f"unavailable: {exc}"
 
     return {
         "status": "operational",

@@ -1,14 +1,24 @@
-"""
-LLM and Agent utilities.
-
-Single authoritative place to define and swap the LLM provider and model.
-To change the model, update the string below.
-"""
+from google.genai.types import AutomaticFunctionCallingConfig
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 LLM_MODEL = "gemini-3.5-flash-lite"
 
 
 def get_llm():
-    """Return configured Chat model instance."""
-    return ChatGoogleGenerativeAI(model=LLM_MODEL)
+    return ChatGoogleGenerativeAI(
+        model=LLM_MODEL,
+        model_kwargs={
+            "automatic_function_calling": AutomaticFunctionCallingConfig(disable=True)
+        },
+    )
+
+
+def content_to_text(content) -> str:
+    if isinstance(content, list):
+        return " ".join(
+            part.get("text", "").strip()
+            if isinstance(part, dict)
+            else str(part).strip()
+            for part in content
+        ).strip()
+    return str(content or "")

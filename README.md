@@ -7,7 +7,7 @@ An objective, conversational AI analyst for F1 Fantasy players. It helps manager
 | Concept | Where it lives in the code |
 |---------|----------------------------|
 | **1. API Endpoints** | `app/main.py`, `app/auth/router.py`, `app/rosters/router.py` |
-| **2. Database** | `app/database.py` (connection) · `scripts/seed_db.py` (seeding) |
+| **2. Database** | `app/database.py` (schema and connections) · `app/f1_data.py` (seed and sync CLI) |
 | **3. Authentication** | `app/auth/utils.py` (Supabase client + JWT) · `app/auth/router.py` (endpoints) |
 | **4. LLM Integration** | `agents/f1_analyst/agent.py` (LangChain + Gemini assembly) |
 | **5. Agent with guardrails (Swap)** | `agents/f1_analyst/agent.py` (system prompt) · `agents/f1_analyst/tools.py` (DB-bound tools) |
@@ -35,14 +35,19 @@ SUPABASE_KEY="your-supabase-anon-key"
 ```
 
 **3. Seed the Database**
-Fetch the latest F1 data and create the local DuckDB database:
+Rebuild the historical F1 statistics database for 2023–2025. Player and roster data are preserved:
 ```bash
-uv run python scripts/seed_db.py
+uv run python -m app.f1_data seed
+```
+
+To add eligible races from the current season:
+```bash
+uv run python -m app.f1_data sync
 ```
 
 **4. Start the Server**
 ```bash
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --env-file .env
 ```
 
 ## 5-Minute Demo Path

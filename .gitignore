@@ -18,5 +18,6 @@ wheels/
 # Data 
 data/
 
-# Work docs for agents
-docs/*
+# Local build context
+/docs/
+/BUGS.md

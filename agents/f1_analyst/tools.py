@@ -1,50 +1,52 @@
-"""
-LangChain tools for the F1 analyst agent.
-
-Each @tool is a pure DB query. No agent logic lives here —
-swap tools in/out without touching agent.py.
-"""
 import duckdb
-from langchain_core.tools import tool
+from langchain.tools import tool
+
+from agents.f1_analyst.sql_agent import run_sql_query
+from app.rosters.service import get_roster, transfer_roster_entities
 
 
 def build_tools(player_id: str, db: duckdb.DuckDBPyConnection) -> list:
-    """Return a list of bound LangChain tools for the given player session."""
-
     @tool
     def get_my_team() -> str:
         """Returns the names of the drivers and constructors currently on the user's F1 Fantasy roster."""
-        res = db.execute(
-            "SELECT d.name FROM rosters r "
-            "JOIN drivers d ON r.entity_id = d.driver_id "
-            "WHERE r.player_id = ? AND r.entity_type = 'driver'",
-            [player_id],
-        ).fetchall()
-        c_res = db.execute(
-            "SELECT c.name FROM rosters r "
-            "JOIN constructors c ON r.entity_id = c.constructor_id "
-            "WHERE r.player_id = ? AND r.entity_type = 'constructor'",
-            [player_id],
-        ).fetchall()
-        
-        player_res = db.execute(
-            "SELECT player_id FROM players WHERE player_id = ?", [player_id]
-        ).fetchone()
-        if not player_res:
-            db.execute("INSERT INTO players VALUES (?, 'new_manager')", [player_id])
-
+        roster = get_roster(player_id, db)
         lines = ["Drivers:"]
-        lines += [f"- {r[0]}" for r in res]
-        lines += ["Constructors:"] + [f"- {r[0]}" for r in c_res]
+        lines.extend(
+            f"- {entity['name']}"
+            for entity in roster
+            if entity["entity_type"] == "driver"
+        )
+        lines.append("Constructors:")
+        lines.extend(
+            f"- {entity['name']}"
+            for entity in roster
+            if entity["entity_type"] == "constructor"
+        )
         return "\n".join(lines)
 
     @tool
     def query_f1_database(question: str) -> str:
-        """Use this tool to answer ANY analytical or historical question about F1. 
-        It writes and executes SQL against our F1 statistics database containing races, circuits, drivers, constructors, and results.
-        Example questions: 'How did Max do in Bahrain?', 'Which constructor has the most points in 2024?', 'Who started on pole at Monza?'"""
-        from agents.f1_analyst.sql_agent import run_sql_query
+        """Use this tool for analytical or historical F1 questions.
+
+        It queries the F1 statistics database containing races, circuits, drivers,
+        constructors, and results. Example: 'How did Max do in Bahrain?' or
+        'Which constructor scored the most points in 2024?'
+        """
         return run_sql_query(question)
 
-    return [get_my_team, query_f1_database]
+    @tool
+    def transfer_roster(remove: list[str], add: list[str]) -> str:
+        """Make a transfer in the user's F1 Fantasy roster.
 
+        Use Ergast-format IDs to remove and add one or more entities. The resulting
+        roster must contain exactly 5 drivers and 2 constructors.
+        """
+        try:
+            result = transfer_roster_entities(player_id, remove, add, db)
+            removed = ", ".join(result["transferred_out"]) or "none"
+            added = ", ".join(result["transferred_in"]) or "none"
+            return f"Transfer complete. Out: {removed}. In: {added}."
+        except ValueError as exc:
+            return f"Transfer failed: {exc}"
+
+    return [get_my_team, query_f1_database, transfer_roster]

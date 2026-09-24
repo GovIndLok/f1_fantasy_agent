@@ -1,88 +1,130 @@
-import os
-
 import duckdb
 from pydantic import BaseModel, Field
 
-from agents.f1_analyst.utils import get_llm
+from agents.f1_analyst.utils import content_to_text, get_llm
+from app import database
 
-_STATS_DB_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'f1_stats.db')
+MAX_RETRIES = 2
+MAX_ROWS = 20
+
 
 class VerificationResult(BaseModel):
-    is_safe: bool = Field(description="True if the query only uses SELECT and targets allowed tables. Must be False if it contains DROP, DELETE, INSERT, UPDATE, or PRAGMA.")
-    reason: str = Field(description="Explanation of why the query is safe or rejected.")
+    is_safe: bool = Field(
+        description=(
+            "True if the query only uses SELECT and targets allowed tables. "
+            "Must be False if it contains DROP, DELETE, INSERT, UPDATE, or PRAGMA."
+        )
+    )
+    reason: str = Field(
+        description="Explanation of why the query is safe or rejected."
+    )
 
-def _get_schema_context(con: duckdb.DuckDBPyConnection) -> str:
-    tables = ["drivers", "constructors", "circuits", "races", "results"]
-    context_lines = []
-    
+
+def _schema_context(db: duckdb.DuckDBPyConnection) -> str:
+    tables = [
+        row[0]
+        for row in db.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'main' ORDER BY table_name"
+        ).fetchall()
+    ]
+    lines = []
     for table in tables:
-        # Get schema
-        schema_rows = con.execute(f"DESCRIBE {table}").fetchall()
-        schema_str = ", ".join([f"{row[0]} ({row[1]})" for row in schema_rows])
-        context_lines.append(f"Table '{table}': {schema_str}")
-        
-        # Get 2 sample rows
-        sample_rows = con.execute(f"SELECT * FROM {table} LIMIT 2").fetchall()
-        context_lines.append(f"  Sample data: {sample_rows}")
-        
-    return "\n".join(context_lines)
+        schema = db.execute(f"DESCRIBE {table}").fetchall()
+        lines.append(
+            f"Table '{table}': "
+            + ", ".join(f"{row[0]} ({row[1]})" for row in schema)
+        )
+        samples = db.execute(f"SELECT * FROM {table} LIMIT 2").fetchall()
+        lines.append(f"  Sample data: {samples}")
+    return "\n".join(lines)
+
+
+def _generate_sql(generator, question: str, schema: str, last_error: str) -> str:
+    error_hint = ""
+    if last_error:
+        error_hint = (
+            "\n\nThe previous query attempt failed with this error:\n"
+            f"{last_error}\n"
+            "Please fix the query so it does not produce that error."
+        )
+    prompt = (
+        "You are a DuckDB SQL expert. Write a query to answer the following question.\n\n"
+        f"Schema and Samples:\n{schema}\n\n"
+        f"Question: {question}{error_hint}\n\n"
+        "Return ONLY the raw SQL query. Do not wrap in markdown tags like ```sql. "
+        "Ensure you handle joins correctly. "
+        "Do not try to attach databases; just query the tables directly."
+    )
+    raw = generator.invoke([("user", prompt)]).content
+    return content_to_text(raw).replace("```sql", "").replace("```", "").strip()
+
+
+def _is_read_only_select(sql: str) -> bool:
+    return sql.lstrip().upper().startswith(("SELECT", "WITH"))
+
+
+def _bounded_sql(sql: str) -> str:
+    return (
+        f"SELECT * FROM ({sql.rstrip('; \t\r\n')}) AS bounded_result "
+        f"LIMIT {MAX_ROWS + 1}"
+    )
+
+
+def _format_result(
+    rows: list[tuple], columns: list[str]
+) -> str:
+    if not rows:
+        return "Query executed successfully but returned no results."
+
+    lines = [f"Columns: {', '.join(columns)}"]
+    lines.extend(str(row) for row in rows[:MAX_ROWS])
+    if len(rows) > MAX_ROWS:
+        lines.append(f"... and {len(rows) - MAX_ROWS} more rows.")
+    return "\n".join(lines)
+
 
 def run_sql_query(question: str) -> str:
-    """End-to-end pipeline to generate, verify, and execute SQL against F1 stats."""
-    
-    if not os.path.exists(_STATS_DB_PATH):
-        return "Database not found. Please run seed script first."
-        
-    # We connect with read_only=True at the driver level for ultimate safety
-    con = duckdb.connect(_STATS_DB_PATH, read_only=True)
-    try:
-        # 1. Gather Context
-        schema_context = _get_schema_context(con)
-        
-        # 2. SQL Agent (Generator)
-        generator_llm = get_llm()
-        gen_prompt = (
-            f"You are a DuckDB SQL expert. Write a query to answer the following question.\n\n"
-            f"Schema and Samples:\n{schema_context}\n\n"
-            f"Question: {question}\n\n"
-            f"Return ONLY the raw SQL query. Do not wrap in markdown tags like ```sql. "
-            f"Ensure you handle joins correctly. Do not try to attach databases, just query the tables directly."
-        )
-        sql_raw = generator_llm.invoke([("user", gen_prompt)]).content
-        sql = sql_raw.replace('```sql', '').replace('```', '').strip()
-        
-        # 3. Verifier Agent
-        verifier_llm = get_llm().with_structured_output(VerificationResult)
-        verify_prompt = (
-            f"Review this DuckDB SQL query: {sql}\n\n"
-            f"Is it a safe, read-only SELECT query? Reject anything that modifies data, drops tables, or alters settings."
-        )
-        verification = verifier_llm.invoke([("user", verify_prompt)])
-        
-        if not getattr(verification, "is_safe", False):
-            return f"Query rejected by Verifier Agent: {getattr(verification, 'reason', 'Unknown reason')}"
-            
-        # 4. Execution Engine
-        res = con.execute(sql).fetchall()
-        columns = [desc[0] for desc in con.description]
-        
-        # 5. Format Return Data
-        if not res:
-            return "Query executed successfully but returned no results."
-            
-        # Limit rows returned to LLM to prevent context overflow
-        MAX_ROWS = 20
-        res_str_lines = [f"Columns: {', '.join(columns)}"]
-        for row in res[:MAX_ROWS]:
-            res_str_lines.append(str(row))
-            
-        if len(res) > MAX_ROWS:
-            res_str_lines.append(f"... and {len(res) - MAX_ROWS} more rows.")
-            
-        return "\n".join(res_str_lines)
-        
-    except Exception as e:
-        return f"Error executing SQL sub-agent pipeline: {str(e)}"
-    finally:
-        con.close()
+    if not database.STATS_DB_PATH.exists():
+        return "Database not found. Please run the seed script first."
 
+    with database.connect_stats(read_only=True) as db:
+        db.execute("SET enable_external_access = false")
+        schema = _schema_context(db)
+        generator = get_llm()
+        verifier = generator.with_structured_output(VerificationResult)
+        last_error = ""
+
+        for attempt in range(MAX_RETRIES + 1):
+            sql = _generate_sql(generator, question, schema, last_error)
+            verification = verifier.invoke(
+                [
+                    (
+                        "user",
+                        f"Review this DuckDB SQL query:\n{sql}\n\n"
+                        "Is it a safe, read-only SELECT query? "
+                        "Reject anything that modifies data, drops tables, or alters settings.",
+                    )
+                ]
+            )
+            if not verification.is_safe:
+                return f"Query rejected by Verifier Agent: {verification.reason}"
+            if not _is_read_only_select(sql):
+                return (
+                    "Query rejected by Verifier Agent: Only SELECT or WITH queries "
+                    "are allowed."
+                )
+
+            try:
+                rows = db.execute(_bounded_sql(sql)).fetchall()
+                columns = [description[0] for description in db.description]
+            except Exception as exc:
+                last_error = str(exc)
+                if attempt == MAX_RETRIES:
+                    return (
+                        f"SQL agent failed after {attempt + 1} attempt(s). "
+                        f"Last error: {last_error}"
+                    )
+                continue
+
+            return _format_result(rows, columns)

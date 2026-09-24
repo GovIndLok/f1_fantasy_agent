@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class RosterEntity(BaseModel):
@@ -12,3 +12,6 @@ class RosterResponse(BaseModel):
     roster: list[RosterEntity]
 
 
+class RosterTransferRequest(BaseModel):
+    remove: list[str] = Field(default_factory=list)
+    add: list[str] = Field(default_factory=list)

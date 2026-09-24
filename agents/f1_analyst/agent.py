@@ -1,19 +1,8 @@
-"""
-F1 Analyst agent — entry point.
-
-This file owns:
-  - LLM initialisation (swap provider here)
-  - Agent assembly (tools + system prompt)
-  - Execution and response normalisation
-
-It imports tools from tools.py and schemas from schema.py.
-No DB query logic lives here.
-"""
 import duckdb
 from langchain.agents import create_agent
 
 from agents.f1_analyst.tools import build_tools
-from agents.f1_analyst.utils import get_llm
+from agents.f1_analyst.utils import content_to_text, get_llm
 
 _SYSTEM_PROMPT = (
     "You are a strict F1 Fantasy Analyst. "
@@ -27,21 +16,16 @@ _SYSTEM_PROMPT = (
 )
 
 
-_llm = get_llm()
-
-
 def run_f1_agent(prompt: str, player_id: str, db: duckdb.DuckDBPyConnection) -> dict:
-    """Run the F1 analyst agent and return {"answer": str, "cost_log": dict}."""
     tools = build_tools(player_id, db)
-    agent = create_agent(_llm, tools, system_prompt=_SYSTEM_PROMPT)
+    agent = create_agent(get_llm(), tools, system_prompt=_SYSTEM_PROMPT)
 
     try:
         response = agent.invoke({"messages": [("user", prompt)]})
-        answer = response["messages"][-1].content or ""
+        answer = content_to_text(response["messages"][-1].content)
         return {
             "answer": answer,
             "cost_log": {"total_tokens": len(prompt.split()) + len(answer.split())},
         }
-    except Exception as e:
-        return {"answer": f"Error: {e}", "cost_log": {"total_tokens": 0}}
-
+    except Exception as exc:
+        return {"answer": f"Error: {exc}", "cost_log": {"total_tokens": 0}}
