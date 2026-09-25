@@ -259,11 +259,11 @@ def sync_current_season(as_of: datetime.date | None = None) -> int:
 def seed_historical_data(
     seasons: Iterable[int] = DEFAULT_SEASONS,
 ) -> int:
-    players = database.connect_players()
+    app_db = database.connect_app()
     try:
-        database.create_players_schema(players)
+        database.create_app_schema(app_db)
     finally:
-        players.close()
+        app_db.close()
 
     temporary_path = database.STATS_DB_PATH.with_name("f1_stats.tmp.db")
     temporary_path.unlink(missing_ok=True)

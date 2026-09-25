@@ -2,13 +2,13 @@
 Unit tests for app/rosters/service.py — transfer_roster_entities().
 
 These tests use an in-memory DuckDB that mimics the real split-DB setup
-(players.db + stats attached READ_ONLY). No FastAPI, no HTTP, no mocking
+(app DB + stats attached READ_ONLY). No FastAPI, no HTTP, no mocking
 of the LLM — pure business-logic coverage.
 """
 import pytest
 import duckdb
 
-from app.database import create_players_schema
+from app.database import create_app_schema
 from app.rosters.service import get_roster, transfer_roster_entities
 
 # ---------------------------------------------------------------------------
@@ -17,8 +17,7 @@ from app.rosters.service import get_roster, transfer_roster_entities
 
 @pytest.fixture()
 def db():
-    """In-memory DuckDB with players + an attached in-memory stats DB."""
-    # Main players DB (in-memory)
+    """In-memory DuckDB with rosters + an attached in-memory stats DB."""
     con = duckdb.connect(":memory:")
 
     # Attach a second in-memory DB as 'stats' to mirror production layout
@@ -59,10 +58,10 @@ def db():
         ],
     )
 
-    create_players_schema(con)
+    create_app_schema(con)
 
-    # Seed user_1 with a valid 5-driver, 2-constructor roster
-    con.execute("INSERT INTO players VALUES ('user_1', 'f1_fanatic')")
+    # Seed user_1 with a valid 5-driver, 2-constructor roster.
+    # No players table — player_id is the Supabase UUID stored directly.
     con.executemany(
         "INSERT INTO rosters VALUES (?, ?, ?)",
         [
@@ -164,14 +163,14 @@ def test_no_duplicate_rows_after_multiple_inserts(db):
     assert count == 7  # always exactly 7 rows
 
 
-def test_get_roster_creates_missing_player(db):
-    roster = get_roster("new_player", db)
+def test_get_roster_returns_empty_for_unknown_player(db):
+    """An authenticated user with no roster entries gets an empty list.
 
+    There is no longer a players table to insert into — the player_id is
+    simply the Supabase user UUID and needs no local record.
+    """
+    roster = get_roster("brand_new_player_uuid", db)
     assert roster == []
-    assert db.execute(
-        "SELECT username FROM players WHERE player_id = 'new_player'"
-    ).fetchone() == ("new_manager",)
-
 
 
 # ---------------------------------------------------------------------------

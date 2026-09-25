@@ -1,16 +1,15 @@
 import duckdb
 
 from agents.f1_analyst.tools import build_tools
-from app.database import create_players_schema
+from app.database import create_app_schema
 
 
 def test_tools_keep_model_facing_interfaces():
     db = duckdb.connect(":memory:")
-    create_players_schema(db)
+    create_app_schema(db)
     db.execute("ATTACH ':memory:' AS stats")
     db.execute("CREATE TABLE stats.drivers (driver_id VARCHAR, name VARCHAR)")
     db.execute("CREATE TABLE stats.constructors (constructor_id VARCHAR, name VARCHAR)")
-    db.execute("INSERT INTO players VALUES ('user_1', 'name')")
     db.execute("INSERT INTO rosters VALUES ('user_1', 'driver_a', 'driver')")
     db.execute("INSERT INTO rosters VALUES ('user_1', 'driver_b', 'driver')")
     db.execute("INSERT INTO rosters VALUES ('user_1', 'driver_c', 'driver')")

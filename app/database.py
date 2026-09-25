@@ -6,11 +6,21 @@ import duckdb
 from fastapi import Depends
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-PLAYERS_DB_PATH = DATA_DIR / "players.db"
+APP_DB_PATH = DATA_DIR / "players.db"  # file name kept for backwards compat
 STATS_DB_PATH = DATA_DIR / "f1_stats.db"
 
 
-def create_players_schema(db: duckdb.DuckDBPyConnection) -> None:
+def create_app_schema(db: duckdb.DuckDBPyConnection) -> None:
+    """Create (or migrate to) the application schema.
+
+    The sole application table is ``rosters``.  The legacy ``players`` identity
+    table has been removed — Supabase Auth is the single source of truth for
+    user identity, so ``rosters.player_id`` stores the Supabase user UUID
+    directly with no local FK target.
+
+    Safe to call on an existing database: existing roster rows are preserved and
+    the legacy ``players`` table is dropped if still present.
+    """
     db.execute("BEGIN TRANSACTION")
     try:
         tables = {
@@ -20,11 +30,6 @@ def create_players_schema(db: duckdb.DuckDBPyConnection) -> None:
                 "WHERE table_schema = 'main'"
             ).fetchall()
         }
-        player_rows = (
-            db.execute("SELECT player_id, username FROM players").fetchall()
-            if "players" in tables
-            else []
-        )
         roster_rows = (
             db.execute(
                 "SELECT player_id, entity_id, entity_type FROM rosters"
@@ -38,20 +43,11 @@ def create_players_schema(db: duckdb.DuckDBPyConnection) -> None:
             db.execute("DROP TABLE players")
         db.execute(
             """
-            CREATE TABLE players (
-                player_id VARCHAR PRIMARY KEY,
-                username VARCHAR NOT NULL
-            )
-            """
-        )
-        db.execute(
-            """
             CREATE TABLE rosters (
-                player_id VARCHAR NOT NULL,
-                entity_id VARCHAR NOT NULL,
+                player_id   VARCHAR NOT NULL,
+                entity_id   VARCHAR NOT NULL,
                 entity_type VARCHAR NOT NULL
-                    CHECK (entity_type IN ('driver', 'constructor')),
-                FOREIGN KEY (player_id) REFERENCES players(player_id)
+                    CHECK (entity_type IN ('driver', 'constructor'))
             )
             """
         )
@@ -61,11 +57,6 @@ def create_players_schema(db: duckdb.DuckDBPyConnection) -> None:
             ON rosters(player_id, entity_id)
             """
         )
-        for row in player_rows:
-            db.execute(
-                "INSERT INTO players (player_id, username) VALUES (?, ?)",
-                list(row),
-            )
         for row in roster_rows:
             db.execute(
                 "INSERT INTO rosters (player_id, entity_id, entity_type) "
@@ -135,9 +126,9 @@ def create_stats_schema(db: duckdb.DuckDBPyConnection) -> None:
         db.execute(statement)
 
 
-def connect_players() -> duckdb.DuckDBPyConnection:
-    PLAYERS_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return duckdb.connect(str(PLAYERS_DB_PATH))
+def connect_app() -> duckdb.DuckDBPyConnection:
+    APP_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    return duckdb.connect(str(APP_DB_PATH))
 
 
 def connect_stats(*, read_only: bool = False) -> duckdb.DuckDBPyConnection:
@@ -147,7 +138,7 @@ def connect_stats(*, read_only: bool = False) -> duckdb.DuckDBPyConnection:
 
 
 def get_db() -> Iterator[duckdb.DuckDBPyConnection]:
-    db = connect_players()
+    db = connect_app()
     try:
         db.execute(
             f"ATTACH IF NOT EXISTS '{STATS_DB_PATH}' AS stats (READ_ONLY)"

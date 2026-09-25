@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app import main
 from app.auth.utils import get_supabase
-from app.database import create_players_schema, get_db
+from app.database import create_app_schema, get_db
 from app.main import app
 
 
@@ -16,7 +16,8 @@ class FakeAuth:
 
     def sign_in_with_password(self, credentials):
         return SimpleNamespace(
-            session=SimpleNamespace(access_token="mock_jwt_token")
+            session=SimpleNamespace(access_token="mock_jwt_token"),
+            user=SimpleNamespace(id="user_1", email=credentials["email"]),
         )
 
     def get_user(self, token):
@@ -26,8 +27,7 @@ class FakeAuth:
 @pytest.fixture()
 def db():
     connection = duckdb.connect(":memory:")
-    create_players_schema(connection)
-    connection.execute("INSERT INTO players VALUES ('user_1', 'f1_fanatic')")
+    create_app_schema(connection)
     connection.execute("ATTACH ':memory:' AS stats")
     connection.execute("CREATE TABLE stats.drivers (driver_id VARCHAR, name VARCHAR, code VARCHAR, nationality VARCHAR)")
     connection.execute("CREATE TABLE stats.constructors (constructor_id VARCHAR, name VARCHAR, nationality VARCHAR)")
@@ -50,6 +50,7 @@ def db():
             ["team_c", "Team C", "Test"],
         ],
     )
+    # Seed user_1's roster directly — no players table needed
     connection.executemany(
         "INSERT INTO rosters VALUES ('user_1', ?, ?)",
         [
@@ -102,14 +103,14 @@ def test_status_reports_connected_database(client):
 def test_auth_registration_and_login_preserve_envelopes(client):
     registration = client.post(
         "/auth/register",
-        json={"email": "player@example.com", "password": "password"},
+        json={"email": "player@example.com", "password": "password", "username": "player"},
     )
     login = client.post(
         "/auth/login",
         json={"email": "player@example.com", "password": "password"},
     )
 
-    assert registration.status_code == 200
+    assert registration.status_code == 201
     assert registration.json()["message"] == "User registered successfully"
     assert login.status_code == 200
     assert login.json() == {
@@ -124,6 +125,19 @@ def test_roster_endpoint_returns_the_service_roster(client):
     assert response.status_code == 200
     assert response.json()["player_id"] == "user_1"
     assert len(response.json()["roster"]) == 7
+
+
+def test_roster_returns_empty_for_player_with_no_entries(client, db):
+    """A valid Supabase user with no roster rows gets an empty roster — not an error."""
+    # Override the auth dependency to return a different user who has no roster rows
+    from app.auth.utils import get_current_player_id
+    app.dependency_overrides[get_current_player_id] = lambda: "brand_new_user_uuid"
+    response = client.get("/roster/me", headers=auth_headers())
+    app.dependency_overrides.pop(get_current_player_id)
+
+    assert response.status_code == 200
+    assert response.json()["player_id"] == "brand_new_user_uuid"
+    assert response.json()["roster"] == []
 
 
 def test_transfer_endpoint_persists_a_valid_swap(client):

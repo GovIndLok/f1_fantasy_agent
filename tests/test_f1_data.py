@@ -108,10 +108,10 @@ def install_api(monkeypatch):
 
 def use_temp_databases(tmp_path, monkeypatch):
     stats_path = tmp_path / "f1_stats.db"
-    players_path = tmp_path / "players.db"
+    app_path = tmp_path / "players.db"
     monkeypatch.setattr(database, "STATS_DB_PATH", stats_path)
-    monkeypatch.setattr(database, "PLAYERS_DB_PATH", players_path)
-    return stats_path, players_path
+    monkeypatch.setattr(database, "APP_DB_PATH", app_path)
+    return stats_path, app_path
 
 
 def test_default_seed_seasons_are_stable():
@@ -201,23 +201,20 @@ def test_failed_seed_keeps_existing_stats(tmp_path, monkeypatch):
 
 
 def test_seed_does_not_replace_player_data(tmp_path, monkeypatch):
-    _, players_path = use_temp_databases(tmp_path, monkeypatch)
+    _, app_path = use_temp_databases(tmp_path, monkeypatch)
     install_api(monkeypatch)
-    players = duckdb.connect(str(players_path))
-    database.create_players_schema(players)
-    players.execute("INSERT INTO players VALUES ('player', 'name')")
-    players.execute(
-        "INSERT INTO rosters VALUES ('player', 'driver_a', 'driver')"
+    app_db = duckdb.connect(str(app_path))
+    database.create_app_schema(app_db)
+    app_db.execute(
+        "INSERT INTO rosters VALUES ('player_uuid', 'driver_a', 'driver')"
     )
-    players.close()
+    app_db.close()
 
     assert seed_historical_data((2025,)) == 1
 
-    players = duckdb.connect(str(players_path), read_only=True)
-    assert players.execute("SELECT * FROM players").fetchall() == [
-        ("player", "name")
+    app_db = duckdb.connect(str(app_path), read_only=True)
+    assert app_db.execute("SELECT * FROM rosters").fetchall() == [
+        ("player_uuid", "driver_a", "driver")
     ]
-    assert players.execute("SELECT * FROM rosters").fetchall() == [
-        ("player", "driver_a", "driver")
-    ]
-    players.close()
+    app_db.close()
+

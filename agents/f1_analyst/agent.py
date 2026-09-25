@@ -12,7 +12,10 @@ _SYSTEM_PROMPT = (
     "You must rely purely on historical performance data and whatever context the user provides in their prompt "
     "to make your predictions and roster suggestions. "
     "Keep in mind that a valid F1 Fantasy roster MUST strictly consist of exactly 5 drivers and 2 constructors. "
-    "You have access to a tool to check the user's current roster, but pricing/budget context must be provided by the user."
+    "You have access to a tool to check the user's current roster, but pricing/budget context must be provided by the user. "
+    "The primary way a fantasy team succeeds is by accumulating points through driver and constructor performance in the championship. "
+    "These points are calculated based mainly on their final results in both sprints and normal races over a weekend event. "
+    "Ignore irrelevant details like pit stops; your main focus should always be on the points scored and final positions achieved by drivers and constructors."
 )
 
 

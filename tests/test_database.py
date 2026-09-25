@@ -1,44 +1,68 @@
 import duckdb
 import pytest
 
-from app.database import create_players_schema, create_stats_schema
+from app.database import create_app_schema, create_stats_schema
 
 
-def test_player_schema_enforces_roster_integrity():
+def test_app_schema_enforces_roster_constraints():
+    """rosters must enforce the entity_type check and the uniqueness index."""
     db = duckdb.connect(":memory:")
-    create_players_schema(db)
-    db.execute("INSERT INTO players VALUES ('player', 'name')")
+    create_app_schema(db)
+
+    # Valid insert — no players table needed
     db.execute("INSERT INTO rosters VALUES ('player', 'max_verstappen', 'driver')")
 
+    # Duplicate (player_id, entity_id) must be rejected
     with pytest.raises(duckdb.ConstraintException):
         db.execute(
             "INSERT INTO rosters VALUES ('player', 'max_verstappen', 'driver')"
         )
 
+    # Invalid entity_type must be rejected
     with pytest.raises(duckdb.ConstraintException):
         db.execute("INSERT INTO rosters VALUES ('player', 'bad', 'invalid')")
 
     db.close()
 
 
-def test_player_schema_upgrades_legacy_rosters():
+def test_app_schema_migrates_legacy_players_table():
+    """create_app_schema on an old DB (players + rosters with FK) must:
+    - drop the players table
+    - preserve all existing roster rows
+    - re-apply the entity_type check and uniqueness constraints
+    """
     db = duckdb.connect(":memory:")
-    db.execute("CREATE TABLE players (player_id VARCHAR, username VARCHAR)")
+    # Simulate the old schema
+    db.execute("CREATE TABLE players (player_id VARCHAR PRIMARY KEY, username VARCHAR NOT NULL)")
     db.execute(
         "CREATE TABLE rosters (player_id VARCHAR, entity_id VARCHAR, entity_type VARCHAR)"
     )
     db.execute("INSERT INTO players VALUES ('player', 'name')")
     db.execute("INSERT INTO rosters VALUES ('player', 'max_verstappen', 'driver')")
 
-    create_players_schema(db)
+    create_app_schema(db)
 
+    # Roster row preserved
     assert db.execute("SELECT * FROM rosters").fetchall() == [
         ("player", "max_verstappen", "driver")
     ]
+    # players table gone
+    tables = {
+        row[0]
+        for row in db.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'main'"
+        ).fetchall()
+    }
+    assert "players" not in tables
+
+    # Constraints re-applied
     with pytest.raises(duckdb.ConstraintException):
         db.execute("INSERT INTO rosters VALUES ('player', 'bad', 'invalid')")
     with pytest.raises(duckdb.ConstraintException):
-        db.execute("INSERT INTO players VALUES ('player', 'duplicate')")
+        db.execute(
+            "INSERT INTO rosters VALUES ('player', 'max_verstappen', 'driver')"
+        )
     db.close()
 
 

@@ -1,14 +1,6 @@
 import duckdb
 
 
-def _ensure_player(player_id: str, db: duckdb.DuckDBPyConnection) -> None:
-    db.execute(
-        "INSERT INTO players (player_id, username) VALUES (?, 'new_manager') "
-        "ON CONFLICT DO NOTHING",
-        [player_id],
-    )
-
-
 def _load_roster(
     player_id: str, db: duckdb.DuckDBPyConnection
 ) -> dict[str, str]:
@@ -97,7 +89,6 @@ def _write_transfer(
 def get_roster(
     player_id: str, db: duckdb.DuckDBPyConnection
 ) -> list[dict[str, str]]:
-    _ensure_player(player_id, db)
     rows = db.execute(
         """
         SELECT r.entity_id, d.name, r.entity_type
@@ -126,7 +117,6 @@ def transfer_roster_entities(
 ) -> dict:
     db.execute("BEGIN TRANSACTION")
     try:
-        _ensure_player(player_id, db)
         if len(remove) != len(set(remove)):
             raise ValueError(f"Duplicate entities in remove: {remove}")
         if len(add) != len(set(add)):
