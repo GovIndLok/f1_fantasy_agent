@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth.schema import RegisterCredentials, UserCredentials
-from app.auth.utils import SupabaseDep
+from app.auth.utils import CredentialsDep, SupabaseDep, get_current_player_id
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -45,3 +45,28 @@ def login_user(creds: UserCredentials, supabase: SupabaseDep):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     return {"access_token": res.session.access_token, "token_type": "bearer"}
+
+
+@router.post("/logout")
+def logout_user(
+    credentials: CredentialsDep,
+    supabase: SupabaseDep,
+    _: str = Depends(get_current_player_id),
+):
+    """
+    Log out the current player.
+
+    Revokes the current session token in Supabase via the admin API,
+    which accepts the JWT directly — no session state required.
+    Requires a valid Bearer token.
+    """
+    try:
+        supabase.auth.admin.sign_out(credentials.credentials)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Token revocation failed: {e}",
+        ) from e
+
+    return {"message": "Successfully logged out"}
+

@@ -10,7 +10,15 @@ from app.database import create_app_schema, get_db
 from app.main import app
 
 
+class FakeAdmin:
+    def sign_out(self, jwt: str, scope: str = "global") -> None:
+        pass  # no-op: revocation is a network call; correctness tested via status code
+
+
 class FakeAuth:
+    def __init__(self):
+        self.admin = FakeAdmin()
+
     def sign_up(self, credentials):
         return SimpleNamespace(user=SimpleNamespace(id="user_1", email=credentials["email"]))
 
@@ -21,6 +29,8 @@ class FakeAuth:
         )
 
     def get_user(self, token):
+        if token != "mock_jwt_token":
+            return SimpleNamespace(user=None)
         return SimpleNamespace(user=SimpleNamespace(id="user_1"))
 
 
@@ -117,6 +127,22 @@ def test_auth_registration_and_login_preserve_envelopes(client):
         "access_token": "mock_jwt_token",
         "token_type": "bearer",
     }
+
+
+def test_auth_logout_succeeds_with_valid_token(client):
+    response = client.post("/auth/logout", headers=auth_headers())
+    assert response.status_code == 200
+    assert response.json() == {"message": "Successfully logged out"}
+
+
+def test_auth_logout_fails_without_token(client):
+    response = client.post("/auth/logout")
+    assert response.status_code == 401
+
+
+def test_auth_logout_fails_with_invalid_token(client):
+    response = client.post("/auth/logout", headers={"Authorization": "Bearer invalid_token"})
+    assert response.status_code == 401
 
 
 def test_roster_endpoint_returns_the_service_roster(client):
