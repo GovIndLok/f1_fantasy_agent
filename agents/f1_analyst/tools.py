@@ -5,7 +5,7 @@ from agents.f1_analyst.sql_agent import run_sql_query
 from app.rosters.service import get_roster, transfer_roster_entities
 
 
-def build_tools(player_id: str, db: duckdb.DuckDBPyConnection) -> list:
+def build_tools(player_id: str, db: duckdb.DuckDBPyConnection, user_id: str = "", request_id: str = "") -> list:
     @tool
     def get_my_team() -> str:
         """Returns the names of the drivers and constructors currently on the user's F1 Fantasy roster."""
@@ -32,7 +32,7 @@ def build_tools(player_id: str, db: duckdb.DuckDBPyConnection) -> list:
         constructors, and results. Example: 'How did Max do in Bahrain?' or
         'Which constructor scored the most points in 2024?'
         """
-        return run_sql_query(question)
+        return run_sql_query(question, user_id=user_id, request_id=request_id)
 
     @tool
     def transfer_roster(remove: list[str], add: list[str]) -> str:

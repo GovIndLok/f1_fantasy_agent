@@ -1,7 +1,7 @@
 import duckdb
 from pydantic import BaseModel, Field
 
-from agents.f1_analyst.utils import content_to_text, get_llm
+from agents.f1_analyst.utils import LLM_MODEL, content_to_text, get_llm
 from app import database
 
 MAX_RETRIES = 2
@@ -40,7 +40,9 @@ def _schema_context(db: duckdb.DuckDBPyConnection) -> str:
     return "\n".join(lines)
 
 
-def _generate_sql(generator, question: str, schema: str, last_error: str) -> str:
+def _generate_sql(
+    generator, question: str, schema: str, last_error: str
+) -> tuple[str, dict | None]:
     error_hint = ""
     if last_error:
         error_hint = (
@@ -56,8 +58,9 @@ def _generate_sql(generator, question: str, schema: str, last_error: str) -> str
         "Ensure you handle joins correctly. "
         "Do not try to attach databases; just query the tables directly."
     )
-    raw = generator.invoke([("user", prompt)]).content
-    return content_to_text(raw).replace("```sql", "").replace("```", "").strip()
+    response = generator.invoke([("user", prompt)])
+    sql = content_to_text(response.content).replace("```sql", "").replace("```", "").strip()
+    return sql, response.usage_metadata
 
 
 def _is_read_only_select(sql: str) -> bool:
@@ -84,7 +87,10 @@ def _format_result(
     return "\n".join(lines)
 
 
-def run_sql_query(question: str) -> str:
+def run_sql_query(question: str, user_id: str = "", request_id: str = "") -> str:
+    # Local import avoids a circular dependency at module load time
+    from agents.f1_analyst.usage_tracker import log_llm_call
+
     if not database.STATS_DB_PATH.exists():
         return "Database not found. Please run the seed script first."
 
@@ -92,21 +98,39 @@ def run_sql_query(question: str) -> str:
         db.execute("SET enable_external_access = false")
         schema = _schema_context(db)
         generator = get_llm()
-        verifier = generator.with_structured_output(VerificationResult)
+        verifier = generator.with_structured_output(VerificationResult, include_raw=True)
         last_error = ""
 
         for attempt in range(MAX_RETRIES + 1):
-            sql = _generate_sql(generator, question, schema, last_error)
-            verification = verifier.invoke(
+            sql, gen_usage = _generate_sql(generator, question, schema, last_error)
+            log_llm_call(
+                user_id=user_id,
+                request_id=request_id,
+                agent_name="sql_generator",
+                model=LLM_MODEL,
+                usage_metadata=gen_usage,
+            )
+
+            raw_result = verifier.invoke(
                 [
                     (
                         "user",
-                        f"Review this DuckDB SQL query:\n{sql}\n\n"
+                        (f"Review this DuckDB SQL query:\n{sql}\n\n"
                         "Is it a safe, read-only SELECT query? "
-                        "Reject anything that modifies data, drops tables, or alters settings.",
+                        "Reject anything that modifies data, drops tables, or alters settings."),
                     )
                 ]
             )
+            verification: VerificationResult = raw_result["parsed"]
+            raw_ai_msg = raw_result.get("raw")
+            log_llm_call(
+                user_id=user_id,
+                request_id=request_id,
+                agent_name="sql_verifier",
+                model=LLM_MODEL,
+                usage_metadata=getattr(raw_ai_msg, "usage_metadata", None),
+            )
+
             if not verification.is_safe:
                 return f"Query rejected by Verifier Agent: {verification.reason}"
             if not _is_read_only_select(sql):

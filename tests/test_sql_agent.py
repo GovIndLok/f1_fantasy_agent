@@ -17,20 +17,30 @@ class FakeModel:
         self.structured = False
         self.verification = VerificationResult(is_safe=is_safe, reason=reason)
 
-    def with_structured_output(self, schema):
+    def with_structured_output(self, schema, include_raw=False):
         assert schema is VerificationResult
-        return FakeVerifier(self.verification)
+        return FakeVerifier(self.verification, include_raw=include_raw)
 
     def invoke(self, messages):
         self.calls += 1
-        return SimpleNamespace(content=self.queries.pop(0))
+        msg = SimpleNamespace(
+            content=self.queries.pop(0),
+            usage_metadata={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+        )
+        return msg
 
 
 class FakeVerifier:
-    def __init__(self, verification):
+    def __init__(self, verification, include_raw=False):
         self.verification = verification
+        self.include_raw = include_raw
 
     def invoke(self, messages):
+        if self.include_raw:
+            raw = SimpleNamespace(
+                usage_metadata={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}
+            )
+            return {"raw": raw, "parsed": self.verification}
         return self.verification
 
 
@@ -61,13 +71,15 @@ def install_models(monkeypatch, queries, *, is_safe=True, reason="safe"):
         return model
 
     monkeypatch.setattr(sql_agent, "get_llm", get_llm)
+    # Swallow tracker writes in unit tests
+    monkeypatch.setattr(sql_agent, "log_llm_call" , lambda **kw: None, raising=False)
     return model
 
 
 def test_sql_query_returns_generated_result(stats_db, monkeypatch):
     model = install_models(monkeypatch, ["SELECT driver_id FROM drivers"])
 
-    result = run_sql_query("Who won the race?")
+    result = run_sql_query("Who won the race?", user_id="u", request_id="r")
 
     assert model.get_llm_calls == 1
     assert "Columns: driver_id" in result
@@ -80,7 +92,7 @@ def test_sql_query_retries_execution_failure(stats_db, monkeypatch):
         ["SELECT missing_column FROM drivers", "SELECT driver_id FROM drivers"],
     )
 
-    result = run_sql_query("Who won the race?")
+    result = run_sql_query("Who won the race?", user_id="u", request_id="r")
 
     assert generator.calls == 2
     assert "hamilton" in result
@@ -94,7 +106,7 @@ def test_sql_query_rejects_unsafe_query(stats_db, monkeypatch):
         reason="DROP is not allowed",
     )
 
-    result = run_sql_query("Drop the drivers table")
+    result = run_sql_query("Drop the drivers table", user_id="u", request_id="r")
 
     assert result == "Query rejected by Verifier Agent: DROP is not allowed"
 
@@ -102,7 +114,7 @@ def test_sql_query_rejects_unsafe_query(stats_db, monkeypatch):
 def test_sql_query_rejects_non_select_even_if_verifier_approves(stats_db, monkeypatch):
     model = install_models(monkeypatch, ["DROP TABLE drivers"], is_safe=True)
 
-    result = run_sql_query("Drop the drivers table")
+    result = run_sql_query("Drop the drivers table", user_id="u", request_id="r")
 
     assert model.calls == 1
     assert result == (
@@ -113,7 +125,7 @@ def test_sql_query_rejects_non_select_even_if_verifier_approves(stats_db, monkey
 def test_sql_query_formats_at_most_twenty_rows(stats_db, monkeypatch):
     install_models(monkeypatch, ["SELECT * FROM range(21)"])
 
-    result = run_sql_query("Return 21 rows")
+    result = run_sql_query("Return 21 rows", user_id="u", request_id="r")
 
     assert "(19,)" in result
     assert "(20,)" not in result
@@ -126,7 +138,7 @@ def test_sql_query_blocks_external_file_access(stats_db, tmp_path, monkeypatch):
     query = f"SELECT * FROM read_csv_auto('{external_file}')"
     generator = install_models(monkeypatch, [query, query, query])
 
-    result = run_sql_query("Read an external file")
+    result = run_sql_query("Read an external file", user_id="u", request_id="r")
 
     assert generator.calls == 3
     assert "SQL agent failed after 3 attempt(s)" in result
@@ -135,6 +147,6 @@ def test_sql_query_blocks_external_file_access(stats_db, tmp_path, monkeypatch):
 def test_sql_query_reports_missing_database(tmp_path, monkeypatch):
     monkeypatch.setattr(database, "STATS_DB_PATH", tmp_path / "missing.db")
 
-    assert run_sql_query("Anything") == (
+    assert run_sql_query("Anything", user_id="u", request_id="r") == (
         "Database not found. Please run the seed script first."
     )
