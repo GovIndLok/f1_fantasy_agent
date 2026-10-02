@@ -181,8 +181,6 @@ def _write_round(
         if was_stored:
             db.execute("DELETE FROM results WHERE race_id = ?", [race_id])
         _insert_circuit(db, race["Circuit"])
-        # ponytail: race metadata is immutable after publication; use a
-        # maintenance replacement if upstream corrections appear.
         if not was_stored:
             _insert_race(db, season, round_number, race)
         for result, is_sprint in results:

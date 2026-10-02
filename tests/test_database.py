@@ -9,7 +9,7 @@ def test_app_schema_enforces_roster_constraints():
     db = duckdb.connect(":memory:")
     create_app_schema(db)
 
-    # Valid insert — no players table needed
+    # Valid insert
     db.execute("INSERT INTO rosters VALUES ('player', 'max_verstappen', 'driver')")
 
     # Duplicate (player_id, entity_id) must be rejected
@@ -26,13 +26,10 @@ def test_app_schema_enforces_roster_constraints():
 
 
 def test_app_schema_migrates_legacy_players_table():
-    """create_app_schema on an old DB (players + rosters with FK) must:
-    - drop the players table
-    - preserve all existing roster rows
-    - re-apply the entity_type check and uniqueness constraints
+    """Verify that create_app_schema correctly handles schema updates
+    and preserves existing roster rows without foreign key conflicts.
     """
     db = duckdb.connect(":memory:")
-    # Simulate the old schema
     db.execute("CREATE TABLE players (player_id VARCHAR PRIMARY KEY, username VARCHAR NOT NULL)")
     db.execute(
         "CREATE TABLE rosters (player_id VARCHAR, entity_id VARCHAR, entity_type VARCHAR)"
@@ -42,11 +39,9 @@ def test_app_schema_migrates_legacy_players_table():
 
     create_app_schema(db)
 
-    # Roster row preserved
     assert db.execute("SELECT * FROM rosters").fetchall() == [
         ("player", "max_verstappen", "driver")
     ]
-    # players table gone
     tables = {
         row[0]
         for row in db.execute(
@@ -56,7 +51,6 @@ def test_app_schema_migrates_legacy_players_table():
     }
     assert "players" not in tables
 
-    # Constraints re-applied
     with pytest.raises(duckdb.ConstraintException):
         db.execute("INSERT INTO rosters VALUES ('player', 'bad', 'invalid')")
     with pytest.raises(duckdb.ConstraintException):

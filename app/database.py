@@ -12,15 +12,10 @@ STATS_DB_PATH = DATA_DIR / "f1_stats.db"
 
 
 def create_app_schema(db: duckdb.DuckDBPyConnection) -> None:
-    """Create (or migrate to) the application schema.
-
-    The sole application table is ``rosters``.  The legacy ``players`` identity
-    table has been removed — Supabase Auth is the single source of truth for
-    user identity, so ``rosters.player_id`` stores the Supabase user UUID
-    directly with no local FK target.
-
-    Safe to call on an existing database: existing roster rows are preserved and
-    the legacy ``players`` table is dropped if still present.
+    """Create or update the application database schema.
+    
+    Creates the ``rosters`` table if it does not exist, which stores
+    Supabase UUIDs directly in ``player_id``.
     """
     db.execute("BEGIN TRANSACTION")
     try:

@@ -60,7 +60,7 @@ def db():
             ["team_c", "Team C", "Test"],
         ],
     )
-    # Seed user_1's roster directly — no players table needed
+    # Seed user_1's roster directly.
     connection.executemany(
         "INSERT INTO rosters VALUES ('user_1', ?, ?)",
         [

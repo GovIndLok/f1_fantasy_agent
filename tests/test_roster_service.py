@@ -61,7 +61,6 @@ def db():
     create_app_schema(con)
 
     # Seed user_1 with a valid 5-driver, 2-constructor roster.
-    # No players table — player_id is the Supabase UUID stored directly.
     con.executemany(
         "INSERT INTO rosters VALUES (?, ?, ?)",
         [
