@@ -12,8 +12,10 @@ BASE_URL = "https://api.jolpi.ca/ergast/f1"
 DEFAULT_SEASONS = (2023, 2024, 2025)
 REQUEST_TIMEOUT = 10
 RETRY_DELAY_SECONDS = 4
-# ponytail: assumes 20 classified F1 results; split by season/classification if future formats differ.
+# Minimum classified results to accept a race/sprint as complete. Guards
+# against storing partial API data while tolerating grid sizes > 20.
 F1_DRIVER_COUNT = 20
+
 
 
 def _get_json(url: str):
@@ -199,11 +201,11 @@ def _write_round(
 def _store_round(db, season: int, round_number: int) -> bool:
     was_stored = _already_stored(db, season, round_number)
     round_data = _round_data(season, round_number)
-    if not round_data or len(round_data[0].get("Results", [])) != F1_DRIVER_COUNT:
+    if not round_data or len(round_data[0].get("Results", [])) < F1_DRIVER_COUNT:
         return False
 
     race, sprint_results = round_data
-    if sprint_results and len(sprint_results) != F1_DRIVER_COUNT:
+    if sprint_results and len(sprint_results) < F1_DRIVER_COUNT:
         sprint_results = []
     race_id = f"{season}_{round_number}"
     preserved_sprint = (
@@ -239,8 +241,39 @@ def _sync_season(
     return stored
 
 
+def _find_cutoff_season_and_round(
+    as_of: datetime.date,
+) -> tuple[int, int] | None:
+    """Return (season, round) of the most recent eligible race.
+
+    Scans as_of.year and up to 3 prior years, stopping at the first season
+    that contains an eligible race. A race is eligible when
+    as_of >= race_date + timedelta(days=3). Races with malformed or missing
+    dates are skipped. Returns None if no eligible race exists in the window.
+    """
+    for year in range(as_of.year, as_of.year - 4, -1):
+        try:
+            schedule = sorted(
+                _schedule(year),
+                key=lambda r: r.get("date", ""),
+                reverse=True,
+            )
+        except Exception as e:
+            print(f"Error: couldn't find cutoff due to {e}")
+        for race in schedule:
+            try:
+                race_date = datetime.date.fromisoformat(race["date"])
+            except (KeyError, ValueError):
+                continue
+            if race_date > as_of:
+                continue
+            if as_of >= race_date + datetime.timedelta(days=3):
+                return year, int(race["round"])
+    return None
+
+
 def sync_current_season(as_of: datetime.date | None = None) -> int:
-    as_of = as_of or datetime.date.today()
+    as_of = as_of or datetime.datetime.now(tz=datetime.UTC).date()
     db = database.connect_stats()
     try:
         table = db.execute(
@@ -251,7 +284,14 @@ def sync_current_season(as_of: datetime.date | None = None) -> int:
             raise RuntimeError(
                 "F1 stats database is not initialized. Run the seed command."
             )
-        return _sync_season(db, as_of.year, as_of=as_of)
+        cutoff = _find_cutoff_season_and_round(as_of)
+        if cutoff is None:
+            return 0
+        cutoff_season, _ = cutoff
+        return sum(
+            _sync_season(db, year, as_of=as_of)
+            for year in range(as_of.year, cutoff_season - 1, -1)
+        )
     finally:
         db.close()
 

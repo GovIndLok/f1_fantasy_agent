@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Annotated
@@ -140,9 +141,18 @@ def connect_stats(*, read_only: bool = False) -> duckdb.DuckDBPyConnection:
 def get_db() -> Iterator[duckdb.DuckDBPyConnection]:
     db = connect_app()
     try:
-        db.execute(
-            f"ATTACH IF NOT EXISTS '{STATS_DB_PATH}' AS stats (READ_ONLY)"
-        )
+        try:
+            db.execute(
+                f"ATTACH IF NOT EXISTS '{STATS_DB_PATH}' AS stats (READ_ONLY)"
+            )
+        except Exception as exc:
+            # Stats DB is held open for writing by the startup sync thread.
+            # DuckDB rejects ATTACH under a different alias while the file is
+            # registered in-process as "f1_stats". Swallow the error so
+            # /status stays responsive; chat will fail gracefully (missing
+            # table) until the sync closes its connection and the next
+            # request can ATTACH cleanly.
+            logging.debug("Stats DB not yet attachable (sync in progress): %s", exc)
         yield db
     finally:
         db.close()

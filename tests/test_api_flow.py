@@ -79,21 +79,24 @@ def db():
 
 @pytest.fixture()
 def client(db):
+    main._sync_ready.set()
+    main._sync_error = None
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_supabase] = lambda: SimpleNamespace(auth=FakeAuth())
     test_client = TestClient(app)
     yield test_client
     test_client.close()
     app.dependency_overrides.clear()
+    main._sync_ready.clear()
 
 
 def auth_headers():
     return {"Authorization": "Bearer mock_jwt_token"}
 
 
-def test_startup_does_not_start_background_sync():
-    assert not hasattr(main, "start_background_sync")
-
+def test_startup_triggers_background_sync(monkeypatch):
+    """The lifespan starts a background sync thread; server starts without blocking."""
+    monkeypatch.setattr("app.main._run_startup_sync", lambda: None)
     with TestClient(app):
         pass
 
@@ -104,8 +107,10 @@ def test_status_reports_connected_database(client):
     assert response.status_code == 200
     assert response.json() == {
         "status": "operational",
+        "ready": True,
         "api_version": "0.1.0",
         "database": "connected",
+        "sync": "ok",
         "message": "F1 Fantasy Agent API is running",
     }
 
